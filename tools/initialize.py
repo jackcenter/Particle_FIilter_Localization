@@ -2,6 +2,10 @@ import csv
 import os
 from workspace import Workspace, Seeker, Hider
 
+def read_settings():
+    # TODO: needs to read a settings text file
+    pass
+
 
 def initialize_environment(environment_filename: str):
     filename = get_map_data_file(environment_filename)

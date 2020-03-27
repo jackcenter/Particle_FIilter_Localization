@@ -1,4 +1,4 @@
-
+from tools.initialize import read_settings
 
 
 def main():
@@ -6,8 +6,15 @@ def main():
 
 
 def run():
-    # create the workspace: map, obstacles, landmarks, agents
-        
+    # TODO: create the workspace with a map and an agent that drives around
+    workspace = read_settings()
+
+    # TODO: have the robot drive around
+
+    # add landmarks
+    # add obstacles?
+    # print range and bearing measurements
+
     pass
 
 
