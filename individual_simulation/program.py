@@ -1,4 +1,5 @@
 import os
+from individual_simulation import simulation
 
 
 def main():
@@ -9,63 +10,52 @@ def main():
         cmd = get_user_input()
         working = interpret_command(cmd)
 
+    return 0
+
 
 def print_header():
     print('---------------------------------------------------')
-    print('                    COHRINT')
-    print('           Particle Filter Localization ')
-    print('                  Jack Center ')
+    print('              Individual Simulation ')
     print('---------------------------------------------------')
     print()
 
 
 def get_user_input():
-    print('Select from the following programs:')
-    print(' [1]: Individual Simulation')
-    # print(' [2]: Benchmarking')
-    # print(' [3]: Decentralized Data Fusion')
-    # print(' [4]: Target Search')
-    print(' [q]: Quit')
+    print('This program runs the following simulations:')
+    print(' [1]: Grid Approximation')
+    print(' [2]: Importance Sampling')
+    print(' [3]: Sequential Importance Sampling (Bootstrap) Particle Filter')
+    print(' [4]: Gaussian Mixture')
     print()
     print(' NOTE: parameters for landmarks and dynamics models can be changed in settings.')
     print()
 
     cmd = input(' Select an exercise would you like to run: ')
-    print()
-
     cmd = cmd.strip().lower()
-
     return cmd
 
 
 def interpret_command(cmd):
     if cmd == '1':      # path planning
-        status = os.system("python individual_simulation/program.py")
+        simulation.run()
 
     elif cmd == '2':
         print(" Sorry, this section is not functional at this time")
-        # status = os.system("python benchmarking/program.py")
 
     elif cmd == '3':
         print(" Sorry, this section is not functional at this time")
-        # status = os.system("python decentralized_data_fusion/program.py")
 
     elif cmd == '4':
         print(" Sorry, this section is not functional at this time")
-        # status = os.system("python target_search/program.py")
-
-    elif cmd == 'q':
-        print(" closing program ... goodbye!")
-        return False
 
     else:
         print(' ERROR: unexpected command...')
-        run_again = input(' Would you like to run another program?[y/n]: ')
-        print()
 
-        if run_again != 'y':
-            print(" closing program ... goodbye!")
-            return False
+    print()
+    run_again = input(' Would you like to run another exercise?[y/n]: ')
+
+    if run_again != 'y':
+        return False
 
     return True
 
