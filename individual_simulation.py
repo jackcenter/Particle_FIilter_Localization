@@ -1,5 +1,5 @@
 import os
-from individual_simulation import simulation
+import simulation
 
 
 def main():

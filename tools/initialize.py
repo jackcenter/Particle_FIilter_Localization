@@ -1,52 +1,37 @@
 import csv
 import os
-from workspace import Workspace, Seeker, Hider
-
-def read_settings():
-    # TODO: needs to read a settings text file
-    pass
+from dynopy.workspace.workspace import Workspace, DifferentialDrive
 
 
-def initialize_environment(environment_filename: str):
-    filename = get_map_data_file(environment_filename)
-    bounds, obstacles = load_environment_data(filename)
-    return Workspace(environment_filename, bounds, obstacles)
+def get_data_files(filename, base_folder):
+    file = os.path.join(base_folder, 'settings', filename)
+
+    with open(file, 'r', encoding='utf8') as fin:
+        reader = csv.reader(fin, skipinitialspace=True, delimiter=',')
+        map_data_filename = next(reader)[0]
+        landmark_data_filename = next(reader)[0]
+
+    map_file = os.path.join(base_folder, 'settings/maps', map_data_filename)
+    landmark_file = os.path.join(base_folder, 'settings/landmarks', landmark_data_filename)
+    settings_files_dict = {'map': map_file, 'landmarks': landmark_file}
+    return settings_files_dict
 
 
-def initialize_seeker(name: str, pose_file: str, color: str, workspace: Workspace, R=None):
-    filename = get_pose_data_file(pose_file)
-    initial_state = load_robot_state_data(filename)
-    robot = Seeker(name, initial_state, color, R)
+def initialize_workspace(files: dict):
+    bounds, obstacles = load_environment_data(files.get('map'))
+    return Workspace(bounds, obstacles)
+
+
+def initialize_robot(workspace, settings_filename, pose_filename, inputs_filename, base_folder):
+    settings_file = os.path.join(base_folder, 'settings/robots', settings_filename)
+    pose_file = os.path.join(base_folder, 'settings/poses', pose_filename)
+    inputs_file = os.path.join(base_folder, 'settings/robots', inputs_filename)
+    robot_settings = load_robot_settings(settings_file)
+    state = load_pose(pose_file)
+    robot = DifferentialDrive(robot_settings, state)
+    robot.read_inputs(inputs_file)
     workspace.robots.append(robot)
     return robot
-
-
-def initialize_hider(name: str, pose_file: str, color: str, workspace: Workspace, state_space):
-    filename = get_pose_data_file(pose_file)
-    initial_state = load_robot_state_data(filename)
-    robot = Hider(name, initial_state, color, state_space)
-    workspace.robots.append(robot)
-    return robot
-
-
-def get_map_data_file(filename):
-    """
-    Gets the full path and name for the text file in the robots folder to load environment specific information
-    :param filename: name of the text file to find
-    :return: the path to the text file
-    """
-    base_folder = os.path.dirname(__file__)
-    return os.path.join(base_folder, 'maps', filename)
-
-
-def get_pose_data_file(filename):
-    """
-    Gets the full path and name for the text file in the robots folder to load environment specific information
-    :param filename: name of the text file to find
-    :return: the path to the text file
-    """
-    base_folder = os.path.dirname(__file__)
-    return os.path.join(base_folder, 'poses', filename)
 
 
 def load_environment_data(filename):
@@ -83,7 +68,26 @@ def load_environment_data(filename):
     return environment_bounds, obstacles
 
 
-def load_robot_state_data(filename):
+def load_robot_settings(file):
+    with open(file, 'r', encoding='utf8') as fin:
+        reader = csv.reader(fin, skipinitialspace=True, delimiter=',')
+
+        keys = next(reader)
+        values = next(reader)
+
+        settings = {}
+        for key, val in zip(keys, values):
+            try:
+                val = float(val)
+            except ValueError:
+                print("    Error: {} cannot be converted to a float".format(val))
+
+            settings.update({key: val})
+
+        return settings
+
+
+def load_pose(filename):
     """
     Loads initial and goal state information for a robot from a text file
     :param filename: path and name to the file with robot state information

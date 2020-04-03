@@ -1,15 +1,21 @@
+import csv
+import os
+from math import cos, sin
+
 import matplotlib.pyplot as plt
 import numpy as np
+import scipy.integrate as sp_integrate
 
-from channel_filter import ChannelFilter
-from data_objects import InformationEstimate, Measurement
-from estimation_tools import get_noisy_measurement
-import information_filter as IF
+from dynopy.datahandling.objects import GroundTruth, Input
+
+# from channel_filter import ChannelFilter
+# from data_objects import InformationEstimate, Measurement
+# from estimation_tools import get_noisy_measurement
+# import information_filter as IF
 
 
 class Workspace:
-    def __init__(self, name, boundary_coordinates, obstacle_coordinates):
-        self.name = name
+    def __init__(self, boundary_coordinates, obstacle_coordinates):
         self.boundary_coordinates = boundary_coordinates
         self.obstacle_coordinates = obstacle_coordinates
 
@@ -77,14 +83,16 @@ class Obstacle:
 
 
 class TwoDimensionalRobot:
-    def __init__(self, name: str, state: dict, color: str):
-        self.name = name
+    def __init__(self, settings: dict, state: dict):
+        self.settings = settings
         self.state = state
-        self.color = color
 
+        self.name = settings.get('name')
+        self.color = settings.get('color')
         self.state_names = list(state.keys())
 
         self.current_measurement_step = 0
+        self.input_list = []
         self.measurement_list = []
 
     def plot_initial(self):
@@ -111,78 +119,141 @@ class TwoDimensionalRobot:
         """
         return list(self.state.values())
 
+    def read_inputs(self, input_file: str):
+        with open(input_file, 'r', encoding='utf8') as fin:
+            reader = csv.DictReader(fin, skipinitialspace=True, delimiter=',')
 
-class Seeker(TwoDimensionalRobot):
-    def __init__(self, name: str, state: dict, color: str, R: np.ndarray):
-        super().__init__(name, state, color)
-        self.R = R
+            for row in reader:
+                u = Input.create_from_dict(row)
+                self.input_list.append(u)
 
-        # TODO: this is a bit static
-        self.i_init = np.array([
-            [0],
-            [0]
-        ])
-        self.I_init = np.array([
-            [0, 0],
-            [0, 0]
-        ])
-        self.information_list = [InformationEstimate.create_from_array(0, self.i_init, self.I_init)]
-        self.channel_filter_dict = {}
 
-    def plot_measurements(self):
-        x_coordinates = [x.y_1 for x in self.measurement_list]
-        y_coordinates = [y.y_2 for y in self.measurement_list]
+class DifferentialDrive(TwoDimensionalRobot):
+    def __init__(self, settings: dict, state: dict):
+        super().__init__(settings, state)
 
-        plt.plot(x_coordinates, y_coordinates, 'o', mfc=self.color, markersize=2, mec='None', alpha=0.5)
+        self.name = settings.get('name')
+        self.color = settings.get('color')
+        self.axel_length = settings.get('axel_length')
+        self.wheel_radius = settings.get('wheel_radius')
+        self.state_names = list(state.keys())
 
-    def get_measurement(self, true_measurement: Measurement):
-        noisy_measurement = get_noisy_measurement(self.R, true_measurement)
-        self.measurement_list.append(noisy_measurement)
-        self.current_measurement_step += 1
-        return noisy_measurement
+        self.current_measurement_step = 0
+        self.input_list = []
+        self.measurement_list = []
+        self.ground_truth = [GroundTruth.create_from_list(0, list(state.values()))]
 
-    def run_filter(self, target):
-        current_step = self.information_list[-1].step
-        true_measurement = next((x for x in target.truth_model.true_measurements if x.step == current_step + 1), None)
-        y = self.get_measurement(true_measurement)
-        self.information_list.append(IF.run(target.state_space, self.information_list[-1], y, self.R))
-
-    def create_channel_filter(self, robot_j, target):
+    def get_ground_truth(self, dt: float):
         """
-        adds a new channel filter for a single target to the
-        :param robot_j:
-        :param target:
+        Will take a list of input objects and run them through the system dynamics to get
+        :param dt:
         :return:
         """
-        channel_filter = ChannelFilter(self, robot_j, target)
-        self.channel_filter_dict[robot_j.name] = channel_filter
+        inputs = self.input_list
 
-    def send_update(self):
-        for cf in self.channel_filter_dict.values():
-            cf.update_and_send()
+        for u in inputs:
+            x_k0 = np.squeeze(self.ground_truth[-1].return_data_array())
+            k0 = self.ground_truth[-1].step
 
-    def receive_update(self):
-        for cf in self.channel_filter_dict.values():
-            cf.receive_and_update()
+            if u.step != k0:
+                print("Error: ground truth to input step misalignment")
 
-    def fuse_data(self):
-        # TODO: should be a summation in here for more sensors, but works as is
-        y_k1_p = self.information_list[-1].return_data_array()
-        Y_k1_p = self.information_list[-1].return_information_matrix()
+            k1 = k0 + 1
+            sol = sp_integrate.solve_ivp(self.dynamics_ode, (k0*dt, k1*dt), x_k0,
+                                         args=(u, self.axel_length, self.wheel_radius))
 
-        yj_novel_sum = 0
-        Yj_novel_sum = 0
+            x_k1 = sol.y[:, -1]
+            self.ground_truth.append(GroundTruth.create_from_list(k1, x_k1))
 
-        for cf in self.channel_filter_dict.values():
-            yj_novel_sum += cf.yj_novel
-            Yj_novel_sum += cf.Yj_novel
+    @staticmethod
+    def dynamics_ode(t, x, u, L, r):
+        u_r = u.u_1
+        u_l = u.u_2
 
-        y_k1_fused = y_k1_p + yj_novel_sum
-        Y_k1_fused = Y_k1_p + Yj_novel_sum
-        self.information_list[-1].update(y_k1_fused, Y_k1_fused)
+        x3 = x[2]
+        x4 = x[3]
+        x5 = x[4]
 
+        x1_dot = r/2*(x4 + x5)*cos(x3)
+        x2_dot = r/2*(x4 + x5)*sin(x3)
+        x3_dot = r/L * (x4 - x5)
+        x4_dot = u_r
+        x5_dot = u_l
 
-class Hider(TwoDimensionalRobot):
-    def __init__(self, name: str, state: dict, color: str, state_space):
-        super().__init__(name, state, color)
-        self.state_space = state_space
+        x_dot = np.array([x1_dot, x2_dot, x3_dot, x4_dot, x5_dot])
+        return x_dot
+
+# class Seeker(TwoDimensionalRobot):
+#     def __init__(self, name: str, state: dict, color: str, R: np.ndarray):
+#         super().__init__(name, state, color)
+#         self.R = R
+#
+#         # TODO: this is a bit static
+#         self.i_init = np.array([
+#             [0],
+#             [0]
+#         ])
+#         self.I_init = np.array([
+#             [0, 0],
+#             [0, 0]
+#         ])
+#         self.information_list = [InformationEstimate.create_from_array(0, self.i_init, self.I_init)]
+#         self.channel_filter_dict = {}
+#
+#     def plot_measurements(self):
+#         x_coordinates = [x.y_1 for x in self.measurement_list]
+#         y_coordinates = [y.y_2 for y in self.measurement_list]
+#
+#         plt.plot(x_coordinates, y_coordinates, 'o', mfc=self.color, markersize=2, mec='None', alpha=0.5)
+#
+#     def get_measurement(self, true_measurement: Measurement):
+#         noisy_measurement = get_noisy_measurement(self.R, true_measurement)
+#         self.measurement_list.append(noisy_measurement)
+#         self.current_measurement_step += 1
+#         return noisy_measurement
+#
+#     def run_filter(self, target):
+#         current_step = self.information_list[-1].step
+#         true_measurement = next((x for x in target.truth_model.true_measurements if x.step == current_step + 1), None)
+#         y = self.get_measurement(true_measurement)
+#         self.information_list.append(IF.run(target.state_space, self.information_list[-1], y, self.R))
+#
+#     def create_channel_filter(self, robot_j, target):
+#         """
+#         adds a new channel filter for a single target to the
+#         :param robot_j:
+#         :param target:
+#         :return:
+#         """
+#         channel_filter = ChannelFilter(self, robot_j, target)
+#         self.channel_filter_dict[robot_j.name] = channel_filter
+#
+#     def send_update(self):
+#         for cf in self.channel_filter_dict.values():
+#             cf.update_and_send()
+#
+#     def receive_update(self):
+#         for cf in self.channel_filter_dict.values():
+#             cf.receive_and_update()
+#
+#     def fuse_data(self):
+#         # TODO: should be a summation in here for more sensors, but works as is
+#         y_k1_p = self.information_list[-1].return_data_array()
+#         Y_k1_p = self.information_list[-1].return_information_matrix()
+#
+#         yj_novel_sum = 0
+#         Yj_novel_sum = 0
+#
+#         for cf in self.channel_filter_dict.values():
+#             yj_novel_sum += cf.yj_novel
+#             Yj_novel_sum += cf.Yj_novel
+#
+#         y_k1_fused = y_k1_p + yj_novel_sum
+#         Y_k1_fused = Y_k1_p + Yj_novel_sum
+#         self.information_list[-1].update(y_k1_fused, Y_k1_fused)
+#
+#
+# class Hider(TwoDimensionalRobot):
+#     def __init__(self, name: str, state: dict, color: str, state_space):
+#         super().__init__(name, state, color)
+#         self.state_space = state_space

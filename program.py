@@ -1,8 +1,10 @@
 import os
+from tools import initialize
 
 
 def main():
     working = True
+    import tools
 
     while working:
         print_header()
@@ -40,19 +42,19 @@ def get_user_input():
 
 def interpret_command(cmd):
     if cmd == '1':      # path planning
-        status = os.system("python individual_simulation/program.py")
+        status = os.system("python individual_simulation.py")
 
     elif cmd == '2':
         print(" Sorry, this section is not functional at this time")
-        # status = os.system("python benchmarking/program.py")
+        # status = os.system("python benchmarking/individual_simulation.py")
 
     elif cmd == '3':
         print(" Sorry, this section is not functional at this time")
-        # status = os.system("python decentralized_data_fusion/program.py")
+        # status = os.system("python decentralized_data_fusion/individual_simulation.py")
 
     elif cmd == '4':
         print(" Sorry, this section is not functional at this time")
-        # status = os.system("python target_search/program.py")
+        # status = os.system("python target_search/individual_simulation.py")
 
     elif cmd == 'q':
         print(" closing program ... goodbye!")

@@ -9,10 +9,14 @@ class GroundTruth:
     """
     data object to hold all information pertinent to the ground truth at a given time step
     """
-    def __init__(self, step: int, state_1: float, state_2: float, state_names=None):
+    def __init__(self, step: int, state_1: float, state_2: float, state_3: float, state_4: float, state_5: float,
+                 state_names=None):
         self.step = step
         self.x_1 = state_1
         self.x_2 = state_2
+        self.x_3 = state_3
+        self.x_4 = state_4
+        self.x_5 = state_5
         self.state_names = state_names
 
     @staticmethod
@@ -23,6 +27,8 @@ class GroundTruth:
         :param state_array: numpy array with ordered state values
         :return: StateEstimate object
         """
+        print(state_array)
+        print(type(state_array))
         if state_array.shape[1]:
             # reduces 2D state array down to a single dimension
             state_array = state_array.squeeze()
@@ -31,6 +37,9 @@ class GroundTruth:
             step,
             state_array[0],
             state_array[1],
+            state_array[2],
+            state_array[3],
+            state_array[4]
         )
 
     @staticmethod
@@ -45,6 +54,9 @@ class GroundTruth:
             step,
             state_list[0],
             state_list[1],
+            state_list[2],
+            state_list[3],
+            state_list[4]
         )
 
     def return_data_array(self):
@@ -55,7 +67,17 @@ class GroundTruth:
         return np.array([
             [self.x_1],
             [self.x_2],
+            [self.x_3],
+            [self.x_4],
+            [self.x_5]
         ])
+
+    def return_data_list(self):
+        """
+        provides intuitive and usefully formatted access to the state estimate data.
+        :return: the state estimate data as an order list
+        """
+        return [self.x_1, self.x_2, self.x_3, self.x_4, self.x_5]
 
     def plot(self):
         plt.plot(self.x_1, self.x_2)
@@ -199,6 +221,30 @@ class StateEstimate:
 
         return Ellipse(xy=(self.x_1, self.x_2), width=major_axis, height=minor_axis, edgecolor=color, fc='None',
                        ls='--')
+
+
+class Input:
+    """
+    data object to hold all information pertinent to the measurement data at a given time step
+    """
+    def __init__(self, step, input_1, input_2, input_names=None):
+        self.step = step
+        self.u_1 = input_1
+        self.u_2 = input_2
+        self.input_names = input_names
+
+    @staticmethod
+    def create_from_dict(lookup):
+        """
+        Used to construct objects directly from a CSV data file
+        :param lookup: dictionary keys
+        :return: constructed ground truth object
+        """
+        return Input(
+            int(lookup['step']),
+            float(lookup['u_1']),
+            float(lookup['u_2']),
+        )
 
 
 class Measurement:
