@@ -1,0 +1,4 @@
+name, x, y, model
+southern, 80, 25, range_and_bearing
+northeastern, 95, 70, range_and_bearing
+northwestern, 15, 85, range_and_bearing

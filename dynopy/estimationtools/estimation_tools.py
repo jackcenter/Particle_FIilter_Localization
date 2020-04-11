@@ -1,8 +1,9 @@
 import numpy as np
 from scipy import linalg
-from data_objects import Measurement
+# from dynopy.datahandling.objects import Measurement
 # from system_dynamics import Dynamics
 # TODO: move dynamics stuff to system dynamics, like measurements
+# TODO: remove dependency on objects
 
 
 class DiscreteLinearStateSpace:
@@ -30,17 +31,17 @@ def get_time_vector(t_0: float, t_f: float, dt: float):
     return np.arange(t_0, t_f + dt, dt)
 
 
-def get_true_measurements(state_space, gt_list: list):
-
-    H = state_space.H
-    measurement_list = list()
-
-    for gt in gt_list:
-        step = gt.step
-        measurement = H @ gt.return_data_array()
-        measurement_list.append(Measurement.create_from_array(step, measurement))
-
-    return measurement_list
+# def get_true_measurements(state_space, gt_list: list):
+#
+#     H = state_space.H
+#     measurement_list = list()
+#
+#     for gt in gt_list:
+#         step = gt.step
+#         measurement = H @ gt.return_data_array()
+#         measurement_list.append(Measurement.create_from_array(step, measurement))
+#
+#     return measurement_list
 
 
 def monte_carlo_sample(mu: np.ndarray, r: np.ndarray, t=1):
@@ -60,18 +61,18 @@ def monte_carlo_sample(mu: np.ndarray, r: np.ndarray, t=1):
     return simulated_measurements
 
 
-def get_noisy_measurement(R: np.ndarray, true_measurement: Measurement):
-    step = true_measurement.step
-    sample = monte_carlo_sample(true_measurement.return_data_array(), R, 1)
-    noisy_measurement = Measurement.create_from_array(step, sample)
-    return noisy_measurement
-
-
-def get_noisy_measurements(R: np.ndarray, true_measurements: list):
-    noisy_measurements = list()
-    for measurement in true_measurements:
-        noisy_measurement = get_noisy_measurement(R, measurement)
-        noisy_measurements.append(noisy_measurement)
-
-    return noisy_measurements
+# def get_noisy_measurement(R: np.ndarray, true_measurement: Measurement):
+#     step = true_measurement.step
+#     sample = monte_carlo_sample(true_measurement.return_data_array(), R, 1)
+#     noisy_measurement = Measurement.create_from_array(step, sample)
+#     return noisy_measurement
+#
+#
+# def get_noisy_measurements(R: np.ndarray, true_measurements: list):
+#     noisy_measurements = list()
+#     for measurement in true_measurements:
+#         noisy_measurement = get_noisy_measurement(R, measurement)
+#         noisy_measurements.append(noisy_measurement)
+#
+#     return noisy_measurements
 

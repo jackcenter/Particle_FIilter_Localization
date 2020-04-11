@@ -1,12 +1,13 @@
 import csv
 import os
-from math import cos, sin
+from math import cos, sin, atan2
 
 import matplotlib.pyplot as plt
 import numpy as np
 import scipy.integrate as sp_integrate
 
-from dynopy.datahandling.objects import GroundTruth, Input
+from dynopy.datahandling.objects import GroundTruth, Input, Measurement, get_noisy_measurement
+from dynopy.estimationtools.importance_sampling import SIS, bootstrap
 
 # from channel_filter import ChannelFilter
 # from data_objects import InformationEstimate, Measurement
@@ -15,9 +16,10 @@ from dynopy.datahandling.objects import GroundTruth, Input
 
 
 class Workspace:
-    def __init__(self, boundary_coordinates, obstacle_coordinates):
+    def __init__(self, boundary_coordinates, obstacle_coordinates, landmarks):
         self.boundary_coordinates = boundary_coordinates
         self.obstacle_coordinates = obstacle_coordinates
+        self.landmarks = landmarks
 
         self.obstacles = list()
         self.robots = list()
@@ -47,11 +49,14 @@ class Workspace:
 
         plt.plot(x_coordinates, y_coordinates, 'k-')
 
-        for i in range(0, len(self.obstacles)):
-            self.obstacles[i].plot()
+        for obstacle in self.obstacles:
+            obstacle.plot()
 
-        for i in range(0, len(self.robots)):
-            self.robots[i].plot_initial()
+        for landmark in self.landmarks:
+            landmark.plot()
+
+        for robot in self.robots:
+            robot.plot_initial()
 
         x_min = self.x_bounds[0]
         x_max = self.x_bounds[1] + 1
@@ -80,6 +85,65 @@ class Obstacle:
         y_coordinates.append(self.vertices[0][1])
 
         plt.plot(x_coordinates, y_coordinates)
+
+
+class Landmark:
+    def __init__(self, name, x, y, model):
+        self.name = name
+        self.vertices = (x, y)
+        self.type = model
+
+        self.range_measurements = True
+        self.bearing_measurements = True
+
+    def plot(self):
+        """
+        Plots as a square
+        :return: none
+        """
+        plt.plot(self.vertices[0], self.vertices[1], 's')
+
+    def get_x(self):
+        return self.vertices[0]
+
+    def get_y(self):
+        return self.vertices[1]
+
+    def return_measurement(self, state):
+
+        x1 = state.x_1
+        y1 = state.x_2
+        k = state.step
+
+        x2 = self.vertices[0]
+        y2 = self.vertices[1]
+
+        if self.range_measurements and self.bearing_measurements:
+            r = ((x2 - x1) ** 2 + (y2 - y1) ** 2) ** (1 / 2)
+            b = atan2(y2 - y1, x2 - x1)
+
+        elif self.range_measurements:
+            r = ((x2 - x1) ** 2 + (y2 - y1) ** 2) ** (1 / 2)
+            b = None
+
+        elif self.bearing_measurements:
+            r = None
+            b = atan2(y2 - y1, x2 - x1)
+
+        else:
+            r = None
+            b = None
+
+        return r, b
+
+    @staticmethod
+    def create_from_dict(settings):
+
+        return Landmark(
+            settings['name'],
+            float(settings['x']),
+            float(settings['y']),
+            settings['model'])
 
 
 class TwoDimensionalRobot:
@@ -129,7 +193,7 @@ class TwoDimensionalRobot:
 
 
 class DifferentialDrive(TwoDimensionalRobot):
-    def __init__(self, settings: dict, state: dict):
+    def __init__(self, settings: dict, state: dict, workspace):
         super().__init__(settings, state)
 
         self.name = settings.get('name')
@@ -137,13 +201,32 @@ class DifferentialDrive(TwoDimensionalRobot):
         self.axel_length = settings.get('axel_length')
         self.wheel_radius = settings.get('wheel_radius')
         self.state_names = list(state.keys())
+        self.workspace = workspace
+
+        self.Q = np.array([[]])
+        self.R = np.array([[]])
 
         self.current_measurement_step = 0
         self.input_list = []
         self.measurement_list = []
         self.ground_truth = [GroundTruth.create_from_list(0, list(state.values()))]
+        self.perfect_measurements = []
+        self.particle_set = []
+        self.particle_set_list = []
 
-    def get_ground_truth(self, dt: float):
+    def step_sis(self, z, u, dt):
+        self.particle_set = SIS(self.particle_set, z, self, u, dt)
+        self.particle_set_list.append(self.particle_set)
+
+    def step_bootstrap(self, z, u, dt):
+        self.particle_set = bootstrap(self.particle_set, z, self, u, dt)
+        self.particle_set_list.append(self.particle_set)
+
+    def initialize_particle_set(self, particle_set):
+        self.particle_set = particle_set
+        self.particle_set_list.append(self.particle_set)
+
+    def get_ground_truth(self, Q_true, dt: float):
         """
         Will take a list of input objects and run them through the system dynamics to get
         :param dt:
@@ -163,7 +246,76 @@ class DifferentialDrive(TwoDimensionalRobot):
                                          args=(u, self.axel_length, self.wheel_radius))
 
             x_k1 = sol.y[:, -1]
-            self.ground_truth.append(GroundTruth.create_from_list(k1, x_k1))
+            self.ground_truth.append(GroundTruth.create_from_list(k1, x_k1, Q_true))
+
+    def get_measurement(self, true_measurement: Measurement):
+        noisy_measurement = get_noisy_measurement(self.R, true_measurement)
+        self.measurement_list.append(noisy_measurement)
+        self.current_measurement_step += 1
+        return noisy_measurement
+
+    def get_perfect_measurements(self):
+
+        for state in self.ground_truth:
+            measurement_values = []
+            output_names = []
+
+            for landmark in self.workspace.landmarks:
+                r, b = landmark.return_measurement(state)
+
+                if r:
+                    measurement_values.append(r)
+                    output_names.append(landmark.name + '_range')
+                if b:
+                    measurement_values.append(b)
+                    output_names.append(landmark.name + '_bearing')
+
+            self.perfect_measurements.append(Measurement.create_from_list(state.step, measurement_values, output_names))
+
+    def create_noisy_measurements(self):
+        for meas in self.perfect_measurements:
+            self.measurement_list.append(self.get_measurement(meas))
+
+    def run_prediction_update(self, x_k0, u, dt: float):
+        """
+        given an initial state and an input, this function runs the full system dynamics prediction.
+        :param x_k0: initial state [StateEstimate object]
+        :param u: input [Input object]
+        :param dt: time step
+        :return: StateEstimate object for the next time step.
+        """
+        k0 = x_k0.step
+        k1 = k0 + 1
+        sol = sp_integrate.solve_ivp(self.dynamics_ode, (k0 * dt, k1 * dt), x_k0.return_data_list(),
+                                     args=(u, self.axel_length, self.wheel_radius))
+        x_k1 = sol.y[:, -1]
+        return x_k1.reshape(-1, 1)
+
+    def get_predicted_measurement(self, state_object):
+        """
+
+        :param state_object:
+        :return:
+        """
+        state = state_object.return_data_list()
+        e = state[0]
+        n = state[1]
+        theta = state[2]
+
+        measurement_values = []
+        output_names = []
+
+        for landmark in self.workspace.landmarks:
+            r, b = landmark.return_measurement(state_object)
+
+            if r:
+                measurement_values.append(r)
+                output_names.append(landmark.name + '_range')
+            if b:
+                measurement_values.append(b)
+                output_names.append(landmark.name + '_bearing')
+
+        return Measurement.create_from_list(state_object.step, measurement_values, output_names)
 
     @staticmethod
     def dynamics_ode(t, x, u, L, r):

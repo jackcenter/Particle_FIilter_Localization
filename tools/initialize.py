@@ -1,6 +1,6 @@
 import csv
 import os
-from dynopy.workspace.workspace import Workspace, DifferentialDrive
+from dynopy.workspace.workspace import Workspace, Landmark, DifferentialDrive
 
 
 def get_data_files(filename, base_folder):
@@ -11,15 +11,16 @@ def get_data_files(filename, base_folder):
         map_data_filename = next(reader)[0]
         landmark_data_filename = next(reader)[0]
 
-    map_file = os.path.join(base_folder, 'settings/maps', map_data_filename)
-    landmark_file = os.path.join(base_folder, 'settings/landmarks', landmark_data_filename)
+    map_file = os.path.join(base_folder, 'settings', 'maps', map_data_filename)
+    print(map_file)
+    landmark_file = os.path.join(base_folder, 'settings', 'landmarks', landmark_data_filename)
     settings_files_dict = {'map': map_file, 'landmarks': landmark_file}
     return settings_files_dict
 
 
 def initialize_workspace(files: dict):
-    bounds, obstacles = load_environment_data(files.get('map'))
-    return Workspace(bounds, obstacles)
+    bounds, obstacles, landmarks = load_environment_data(files.get('map'), files.get('landmarks'))
+    return Workspace(bounds, obstacles, landmarks)
 
 
 def initialize_robot(workspace, settings_filename, pose_filename, inputs_filename, base_folder):
@@ -28,22 +29,23 @@ def initialize_robot(workspace, settings_filename, pose_filename, inputs_filenam
     inputs_file = os.path.join(base_folder, 'settings/robots', inputs_filename)
     robot_settings = load_robot_settings(settings_file)
     state = load_pose(pose_file)
-    robot = DifferentialDrive(robot_settings, state)
+    robot = DifferentialDrive(robot_settings, state, workspace)
     robot.read_inputs(inputs_file)
     workspace.robots.append(robot)
     return robot
 
 
-def load_environment_data(filename):
+def load_environment_data(map_filename, landmark_filename=None):
     """
     Loads the environment boundaries and obstacles from a text file
-    :param filename: path and name to the file with robot state information
-    :return: lists of tuples of coordinates for the environment boundaries and obstacles
+    :param map_filename: path and name to the file with robot state information
+    :param landmark_filename: path and name to the file with robot state information
+    :return: lists of tuples of coordinates for the environment boundaries and obstacles, and a list of landmark objects
     """
     environment_bounds = list()
     obstacles = list()
 
-    with open(filename, 'r', encoding='utf8') as fin:
+    with open(map_filename, 'r', encoding='utf8') as fin:
 
         reader = csv.reader(fin, skipinitialspace=True, delimiter=',')
 
@@ -65,7 +67,14 @@ def load_environment_data(filename):
 
             obstacles.append(temporary_obstacle)
 
-    return environment_bounds, obstacles
+    with open(landmark_filename, 'r', encoding='utf8') as fin:
+        reader = csv.DictReader(fin, skipinitialspace=True, delimiter=',')
+
+        landmarks = []
+        for settings in reader:
+            landmarks.append(Landmark.create_from_dict(settings))
+
+    return environment_bounds, obstacles, landmarks
 
 
 def load_robot_settings(file):

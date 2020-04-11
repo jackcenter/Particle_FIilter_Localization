@@ -1,4 +1,0 @@
-x, y, type
-80, 25, range_and_bearing
-45, 80, range_and_bearing
-15, 85, range_and_bearing
